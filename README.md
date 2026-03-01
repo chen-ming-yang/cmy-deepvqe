@@ -6,3 +6,5 @@ All basic Modules comes from
 (https://github.com/Xiaobin-Rong/deepvqe)
 
 Change the arch and add the training method
+
+USAGE.md for usage
