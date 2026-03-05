@@ -16,10 +16,10 @@ class Config:
     dns_root: Optional[str] = None          # e.g. "datasets/dns_challenge"
 
     # Shared noise directory (*.wav)
-    noise_dir: Optional[str] = None         # e.g. "datasets/noise"
+    noise_dir: Optional[str] = "/home/cmy/cmy/3D-Speaker/egs/3dspeaker/sv-eres2netv2/data/raw_data/musan"         # e.g. "datasets/noise"
 
     # Shared RIR directory (*.wav, optional — synthetic RIR used if None)
-    rir_dir: Optional[str] = None           # e.g. "datasets/rir"
+    rir_dir: Optional[str] = "/home/cmy/cmy/AEC-Challenge/datasets/RIRs"           # e.g. "datasets/rir"
 
     # Validation (same structure, or None to skip)
     val_aec_root: Optional[str] = None

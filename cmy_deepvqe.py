@@ -54,9 +54,9 @@ class AlignBlock(nn.Module):
         V = self.conv(V)           # (B,1,T,D)
         A = torch.softmax(V, dim=-1)[..., None]  # (B,1,T,D,1)
         
-        y = self.unfold(x_ref).view(K.shape[0], K.shape[1], -1, K.shape[2], K.shape[3])\
-                .permute(0,1,3,2,4).contiguous()  # (B,H,T,D,F)
-        y = torch.sum(y * A, dim=-2)
+        y = self.unfold(x_ref).view(x_ref.shape[0], x_ref.shape[1], -1, x_ref.shape[2], x_ref.shape[3])\
+                .permute(0,1,3,2,4).contiguous()  # (B,C,T,D,F)
+        y = torch.sum(y * A, dim=-2)  # (B,C,T,F)
         return y
 
 
@@ -156,6 +156,7 @@ class DeepVQE(nn.Module):
             align_hidden=16,
             dmax=100,
             fe_compress=0.3,
+            n_fft=512,
     ):
         super().__init__()
 
@@ -169,6 +170,14 @@ class DeepVQE(nn.Module):
         self.mic_channels = mic_channels
         self.ref_channels = ref_channels
         self.dec_channels = dec_channels
+
+        # Compute the frequency dimension reaching the bottleneck.
+        # Each EncoderBlock uses stride=(1,2) on F, giving ceil(F/2) each stage.
+        import math
+        _f = n_fft // 2 + 1          # e.g. 257 for n_fft=512
+        for _ in range(len(mic_channels)):  # 5 encoder stages
+            _f = math.ceil(_f / 2)   # 129→65→33→17→9
+        gru_input_size = mic_channels[-1] * _f  # e.g. 128*9 = 1152
 
 
 
@@ -190,7 +199,7 @@ class DeepVQE(nn.Module):
             delay=dmax
         )
 
-        self.bottle = Bottleneck(hidden_size=gru_hidden)
+        self.bottle = Bottleneck(input_size=gru_input_size, hidden_size=gru_hidden)
 
         self.dec1 = DecoderBlock(mic_channels[4], dec_channels[0])
         self.dec2 = DecoderBlock(dec_channels[0], dec_channels[1])
@@ -247,10 +256,15 @@ class DeepVQE(nn.Module):
         bn_out = self.bottle(mic_e5)
 
         dec_out = self.dec1(bn_out, mic_e5)
+        dec_out = dec_out[..., :mic_e4.shape[-1]]
         dec_out = self.dec2(dec_out, self.skip_adapt2(mic_e4))
+        dec_out = dec_out[..., :mic_e3.shape[-1]]
         dec_out = self.dec3(dec_out, self.skip_adapt3(mic_e3))
+        dec_out = dec_out[..., :mic_e2.shape[-1]]
         dec_out = self.dec4(dec_out, self.skip_adapt4(mic_e2))
+        dec_out = dec_out[..., :mic_e1.shape[-1]]
         dec_out = self.dec5(dec_out, self.skip_adapt5(mic_e1))
+        dec_out = dec_out[..., :mic_spec.shape[1]]  # trim to original F
 
         clean_spec = self.ccm(dec_out, mic_spec)
         

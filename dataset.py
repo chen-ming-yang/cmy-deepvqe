@@ -249,9 +249,12 @@ class SpeechEnhancementDataset(Dataset):
                 # Scale echo to target SER relative to near-end
                 echo = _scale_to_snr(reverb_nearend, echo, ser_db)
             else:
-                echo_path = _generate_echo_path(
-                    self.sr, self.echo_delay_range_ms, self.echo_rt60_range
-                )
+                if self.rir_files and random.random() < 0.5:
+                    echo_path = load_wav(random.choice(self.rir_files), self.sr)
+                else:
+                    echo_path = _generate_echo_path(
+                        self.sr, self.echo_delay_range_ms, self.echo_rt60_range
+                    )
                 echo_raw = scipy_signal.fftconvolve(farend, echo_path, mode="full")[:self.seg_samples]
                 echo_raw = echo_raw.astype(np.float32)
                 # Scale echo to target SER relative to near-end

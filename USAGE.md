@@ -101,6 +101,13 @@ python train.py \
     --batch_size 8 \
     --lr 1e-3
 
+python train.py \
+    --aec_root /home/cmy/cmy/AEC-Challenge/datasets/synthetic \
+    --noise_dir /home/cmy/cmy/3D-Speaker/egs/3dspeaker/sv-eres2netv2/data/raw_data/musan \
+    --epochs 100 \
+    --batch_size 8 \
+    --lr 1e-3
+
 # DNS data only
 python train.py \
     --dns_root /data/dns_challenge \
