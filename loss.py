@@ -34,8 +34,8 @@ class CompressedSpecLoss(nn.Module):
         est_real, est_imag = est_spec[..., 0], est_spec[..., 1]
         tgt_real, tgt_imag = tgt_spec[..., 0], tgt_spec[..., 1]
 
-        est_mag = torch.sqrt(est_real ** 2 + est_imag ** 2 + 1e-12)
-        tgt_mag = torch.sqrt(tgt_real ** 2 + tgt_imag ** 2 + 1e-12)
+        est_mag = torch.sqrt(est_real ** 2 + est_imag ** 2 + 1e-12).clamp(min=1e-5)
+        tgt_mag = torch.sqrt(tgt_real ** 2 + tgt_imag ** 2 + 1e-12).clamp(min=1e-5)
 
         # Magnitude loss
         mag_loss = torch.mean((est_mag.pow(self.c) - tgt_mag.pow(self.c)) ** 2)

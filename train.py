@@ -122,6 +122,11 @@ def train_one_epoch(model, loader, criterion, optimizer, cfg, epoch):
 
         loss, l_spec, l_sisnr = criterion(est_spec, tgt_spec)
 
+        if not torch.isfinite(loss):
+            print(f"  [WARNING] Non-finite loss ({loss.item():.4f}) at step {step+1}, skipping batch")
+            optimizer.zero_grad()
+            continue
+
         optimizer.zero_grad()
         loss.backward()
         if cfg.grad_clip > 0:
