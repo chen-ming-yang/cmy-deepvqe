@@ -100,6 +100,17 @@ def build_datasets(cfg: Config):
     train_ds = CombinedDataset(train_sets) if len(train_sets) > 1 else train_sets[0]
     val_ds = CombinedDataset(val_sets) if len(val_sets) > 1 else (val_sets[0] if val_sets else None)
 
+    total_train = len(train_ds)
+    total_hours = total_train * cfg.segment_len / 3600
+    print(f"\n{'='*60}")
+    print(f"[Dataset Summary]")
+    print(f"  Training samples : {total_train}")
+    print(f"  Segment length   : {cfg.segment_len:.1f} s")
+    print(f"  Total audio      : {total_hours:.2f} hours")
+    if val_ds is not None:
+        print(f"  Validation samples: {len(val_ds)}")
+    print(f"{'='*60}\n")
+
     return train_ds, val_ds
 
 

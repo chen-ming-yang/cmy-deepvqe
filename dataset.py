@@ -214,7 +214,7 @@ class SpeechEnhancementDataset(Dataset):
         nearend = _rand_crop(nearend, self.seg_samples)
 
         if self.farend_files:
-            farend = load_wav(random.choice(self.farend_files), self.sr)
+            farend = load_wav(self.farend_files[idx], self.sr)  # strictly paired with nearend
             farend = _rand_crop(farend, self.seg_samples)
         else:
             farend = np.zeros(self.seg_samples, dtype=np.float32)
@@ -242,9 +242,8 @@ class SpeechEnhancementDataset(Dataset):
         # ── 4. Create echo from far-end signal ───────────────────────────
         if do_echo:
             if self.use_pregenerated_echo:
-                # Use pre-generated echo_signal file (matched by index)
-                echo_idx = idx % len(self.echo_files)
-                echo = load_wav(self.echo_files[echo_idx], self.sr)
+                # Use a randomly selected pre-generated echo_signal file
+                echo = load_wav(random.choice(self.echo_files), self.sr)
                 echo = _rand_crop(echo, self.seg_samples)
                 # Scale echo to target SER relative to near-end
                 echo = _scale_to_snr(reverb_nearend, echo, ser_db)
@@ -445,6 +444,8 @@ class CombinedDataset(Dataset):
         for d in datasets:
             s += len(d)
             self.cum_lengths.append(s)
+        total = self.cum_lengths[-1] if self.cum_lengths else 0
+        print(f"[CombinedDataset] {len(datasets)} sub-datasets, total={total} samples")
 
     def __len__(self):
         return self.cum_lengths[-1] if self.cum_lengths else 0
