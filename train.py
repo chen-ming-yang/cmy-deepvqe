@@ -4,7 +4,7 @@ DeepVQE training script.
 Usage:
     python train.py --aec_root datasets/aec_challenge/synthetic \
                     --dns_root datasets/dns_challenge            \
-                    --noise_dir datasets/noise                   \
+                    --noise_dir datasets/noise1 datasets/noise2  \
                     --rir_dir datasets/rir                       \
                     --epochs 100 --batch_size 8 --lr 1e-3
 
@@ -313,10 +313,10 @@ def parse_args():
                         help="AEC-Challenge synthetic root (nearend_mic_signal/ etc.)")
     parser.add_argument("--dns_root", type=str, default=None,
                         help="DNS-Challenge root (containing clean/)")
-    parser.add_argument("--noise_dir", type=str, default=None,
-                        help="Shared noise directory")
-    parser.add_argument("--rir_dir", type=str, default=None,
-                        help="Shared RIR directory (optional, synthetic if omitted)")
+    parser.add_argument("--noise_dir", type=str, nargs='*', default=None,
+                        help="Shared noise directory (can specify multiple directories)")
+    parser.add_argument("--rir_dir", type=str, nargs='*', default=None,
+                        help="Shared RIR directory (optional, synthetic if omitted; can specify multiple)")
     parser.add_argument("--val_aec_root", type=str, default=None)
     parser.add_argument("--val_dns_root", type=str, default=None)
     parser.add_argument("--use_pregenerated_echo", action="store_true", default=True,

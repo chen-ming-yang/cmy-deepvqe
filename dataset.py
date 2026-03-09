@@ -29,6 +29,11 @@ AEC-Challenge synthetic (https://github.com/microsoft/AEC-Challenge):
 DNS-Challenge:
     dns_root/
       └── clean/                # clean speech (target, no echo)
+    or:
+    dns_root/
+      ├── datasets.clean.emotional_speech/
+      ├── datasets.clean.french_data/
+      └── ...                   # any subdirs with .wav files
 
 Noise directory  (shared by both):
     noise_dir/
@@ -55,12 +60,25 @@ from utils import load_wav, stft, SAMPLE_RATE
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 def _scan_wavs(folder):
-    """Return sorted list of .wav paths under folder (recursive)."""
+    """Return sorted list of .wav paths under folder (recursive).
+    
+    Args:
+        folder: can be a single path (str) or list of paths (List[str])
+    """
     if folder is None:
         return []
-    files = glob.glob(os.path.join(folder, "**", "*.wav"), recursive=True)
-    files.sort()
-    return files
+    
+    # Handle both single path and list of paths
+    folders = [folder] if isinstance(folder, str) else folder
+    
+    all_files = []
+    for f in folders:
+        if f is not None:
+            files = glob.glob(os.path.join(f, "**", "*.wav"), recursive=True)
+            all_files.extend(files)
+    
+    all_files.sort()
+    return all_files
 
 
 def _rand_crop(audio, length):
@@ -414,11 +432,40 @@ def make_dns_dataset(dns_root, noise_dir=None, rir_dir=None, **kwargs):
     """
     Build a SpeechEnhancementDataset from DNS-Challenge data.
 
-    dns_root/
-      └── clean/                # clean near-end speech
+    Supports two layouts:
+      Standard:
+        dns_root/
+          └── clean/                # clean near-end speech
+
+      Multi-directory (e.g. DNS-Challenge datasets/dns/):
+        dns_root/
+          ├── datasets.clean.emotional_speech/
+          ├── datasets.clean.french_data/
+          └── ...                   # all dirs starting with 'datasets.clean'
+
+    Priority:
+      1. dns_root/clean/ if it exists
+      2. All subdirs starting with 'datasets.clean'
+      3. dns_root itself (fallback)
+
     No far-end → echo step is skipped.
     """
-    nearend_files = _scan_wavs(os.path.join(dns_root, "clean"))
+    clean_subdir = os.path.join(dns_root, "clean")
+    if os.path.isdir(clean_subdir):
+        nearend_files = _scan_wavs(clean_subdir)
+    else:
+        clean_dirs = [
+            os.path.join(dns_root, d)
+            for d in sorted(os.listdir(dns_root))
+            if d.startswith("datasets.clean") and os.path.isdir(os.path.join(dns_root, d))
+        ]
+        if clean_dirs:
+            print(f"[make_dns_dataset] Found {len(clean_dirs)} datasets.clean.* dirs: "
+                  f"{[os.path.basename(d) for d in clean_dirs]}")
+            nearend_files = _scan_wavs(clean_dirs)
+        else:
+            nearend_files = _scan_wavs(dns_root)
+
     noise_files   = _scan_wavs(noise_dir) if noise_dir else []
     rir_files     = _scan_wavs(rir_dir) if rir_dir else []
 
