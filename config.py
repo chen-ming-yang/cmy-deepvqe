@@ -74,7 +74,7 @@ class Config:
     # ── checkpointing / logging ───────────────────────────────────────────
     save_dir: str = "checkpoints"
     log_interval: int = 50                  # print every N steps
-    save_interval: int = 1                  # save every N epochs
+    save_interval: int = 3                  # save every N epochs
     resume: Optional[str] = None            # path to checkpoint to resume
     seed: int = 42
 

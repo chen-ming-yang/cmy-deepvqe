@@ -12,6 +12,7 @@ Run `python train.py -h` for all options.
 """
 
 import os
+import glob
 import sys
 import time
 import random
@@ -245,17 +246,27 @@ def main(cfg: Config):
             num_workers=cfg.num_workers, pin_memory=True,
         )
 
-    # Resume
+    # Resume – auto-detect latest checkpoint if --resume not specified
     start_epoch = 1
     best_val_loss = float("inf")
-    if cfg.resume is not None and os.path.isfile(cfg.resume):
-        ckpt = torch.load(cfg.resume, map_location=device)
+
+    resume_path = cfg.resume
+    if resume_path is None:
+        # Find the latest epoch_*.pt in save_dir
+        existing = sorted(glob.glob(os.path.join(cfg.save_dir, "epoch_*.pt")))
+        if existing:
+            resume_path = existing[-1]
+
+    if resume_path is not None and os.path.isfile(resume_path):
+        ckpt = torch.load(resume_path, map_location=device)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
         best_val_loss = ckpt.get("best_val_loss", float("inf"))
-        print(f"Resumed from {cfg.resume}, epoch {start_epoch}")
+        print(f"Resumed from {resume_path}, starting epoch {start_epoch}")
+    else:
+        print("No checkpoint found, starting from scratch")
 
     # ── Training ──────────────────────────────────────────────────────────
     for epoch in range(start_epoch, cfg.epochs + 1):

@@ -67,6 +67,10 @@ def _scan_wavs(folder):
     """
     if folder is None:
         return []
+    files = glob.glob(os.path.join(folder, "**", "*.wav"), recursive=True)
+    files += glob.glob(os.path.join(folder, "**", "*.WAV"), recursive=True)
+    files.sort()
+    return files
     
     # Handle both single path and list of paths
     folders = [folder] if isinstance(folder, str) else folder
@@ -260,8 +264,8 @@ class SpeechEnhancementDataset(Dataset):
         # ── 4. Create echo from far-end signal ───────────────────────────
         if do_echo:
             if self.use_pregenerated_echo:
-                # Use a randomly selected pre-generated echo_signal file
-                echo = load_wav(random.choice(self.echo_files), self.sr)
+                # Use strictly paired pre-generated echo_signal file
+                echo = load_wav(self.echo_files[idx % len(self.echo_files)], self.sr)
                 echo = _rand_crop(echo, self.seg_samples)
                 # Scale echo to target SER relative to near-end
                 echo = _scale_to_snr(reverb_nearend, echo, ser_db)
