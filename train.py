@@ -20,7 +20,7 @@ import argparse
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
 from config import Config
 from cmy_deepvqe import DeepVQE
@@ -99,7 +99,23 @@ def build_datasets(cfg: Config):
                          "Provide --aec_root and/or --dns_root.")
 
     train_ds = CombinedDataset(train_sets) if len(train_sets) > 1 else train_sets[0]
-    val_ds = CombinedDataset(val_sets) if len(val_sets) > 1 else (val_sets[0] if val_sets else None)
+
+    # Build validation set
+    if val_sets:
+        val_ds = CombinedDataset(val_sets) if len(val_sets) > 1 else val_sets[0]
+    elif cfg.val_split > 0.0:
+        # No explicit val roots — carve out a fraction of training data
+        n_total = len(train_ds)
+        n_val = max(1, int(n_total * cfg.val_split))
+        n_train = n_total - n_val
+        train_ds, val_ds = random_split(
+            train_ds, [n_train, n_val],
+            generator=torch.Generator().manual_seed(cfg.seed),
+        )
+        print(f"[build_datasets] Auto val-split {cfg.val_split:.0%}: "
+              f"{n_train} train / {n_val} val")
+    else:
+        val_ds = None
 
     total_train = len(train_ds)
     total_hours = total_train * cfg.segment_len / 3600
@@ -328,8 +344,12 @@ def parse_args():
                         help="Shared noise directory (can specify multiple directories)")
     parser.add_argument("--rir_dir", type=str, nargs='*', default=None,
                         help="Shared RIR directory (optional, synthetic if omitted; can specify multiple)")
-    parser.add_argument("--val_aec_root", type=str, default=None)
-    parser.add_argument("--val_dns_root", type=str, default=None)
+    parser.add_argument("--val_aec_root", type=str, default=None,
+                        help="Validation AEC root (if omitted, val_split of train data is used)")
+    parser.add_argument("--val_dns_root", type=str, default=None,
+                        help="Validation DNS root (if omitted, val_split of train data is used)")
+    parser.add_argument("--val_split", type=float, default=0.05,
+                        help="Fraction of training data to use as validation when no val root is given (default: 0.05)")
     parser.add_argument("--use_pregenerated_echo", action="store_true", default=True,
                         help="Use AEC echo_signal/ files directly (default: True)")
     parser.add_argument("--no_pregenerated_echo", dest="use_pregenerated_echo",
@@ -377,6 +397,7 @@ if __name__ == "__main__":
         rir_dir=args.rir_dir,
         val_aec_root=args.val_aec_root,
         val_dns_root=args.val_dns_root,
+        val_split=args.val_split,
         use_pregenerated_echo=args.use_pregenerated_echo,
         sr=args.sr,
         n_fft=args.n_fft,

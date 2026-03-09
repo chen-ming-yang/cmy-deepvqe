@@ -21,11 +21,12 @@ class Config:
     # Shared RIR directory (*.wav, optional — synthetic RIR used if None) - can be a list
     rir_dir: Optional[List[str]] = None           # e.g. ["datasets/rir1", "datasets/rir2"]
 
-    # Validation (same structure, or None to skip)
+    # Validation (same structure, or None to auto-split from training data)
     val_aec_root: Optional[str] = None
     val_dns_root: Optional[str] = None
     val_noise_dir: Optional[List[str]] = None
     val_rir_dir: Optional[List[str]] = None
+    val_split: float = 0.05                 # fraction of train data used as val when no val root given
 
     # ── audio / STFT ──────────────────────────────────────────────────────
     sr: int = 16000
