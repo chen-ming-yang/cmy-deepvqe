@@ -61,26 +61,22 @@ from utils import load_wav, stft, SAMPLE_RATE
 
 def _scan_wavs(folder):
     """Return sorted list of .wav paths under folder (recursive).
-    
+
     Args:
-        folder: can be a single path (str) or list of paths (List[str])
+        folder: a single path (str) or a list of paths (List[str])
     """
     if folder is None:
         return []
-    files = glob.glob(os.path.join(folder, "**", "*.wav"), recursive=True)
-    files += glob.glob(os.path.join(folder, "**", "*.WAV"), recursive=True)
-    files.sort()
-    return files
-    
+
     # Handle both single path and list of paths
     folders = [folder] if isinstance(folder, str) else folder
-    
+
     all_files = []
     for f in folders:
         if f is not None:
-            files = glob.glob(os.path.join(f, "**", "*.wav"), recursive=True)
-            all_files.extend(files)
-    
+            all_files += glob.glob(os.path.join(f, "**", "*.wav"), recursive=True)
+            all_files += glob.glob(os.path.join(f, "**", "*.WAV"), recursive=True)
+
     all_files.sort()
     return all_files
 

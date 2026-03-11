@@ -115,17 +115,16 @@ python train.py \
     --epochs 100
 
 # Both AEC + DNS combined
-python train.py \
-    --aec_root /data/aec_challenge/synthetic \
-    --dns_root /data/dns_challenge \
-    --noise_dir /data/noise \
-    --rir_dir /data/rir \
-    --val_aec_root /data/aec_challenge/synthetic_val \
-    --val_dns_root /data/dns_challenge_val \
+python train.py  \ 
+    --aec_root /home/cmy/cmy/AEC-Challenge/datasets/synthetic \
+    --dns_root /home/cmy/cmy/DNS-Challenge/datasets/dns  \
+    --noise_dir /home/cmy/cmy/3D-Speaker/egs/3dspeaker/sv-eres2netv2/data/raw_data/musan  /home/cmy/cmy/DNS-Challenge/datasets/dns/datasets.noise \
+    --rir_dir /home/cmy/cmy/DNS-Challenge/datasets/dns_16k/datasets.impulse_responses \
     --epochs 100 \
-    --batch_size 8 \
+    --batch_size 8 \ 
     --lr 1e-3 \
-    --save_dir checkpoints
+    --save_dir checkpoints \
+    --resume /home/cmy/cmy-deepvqe/checkpoints/epoch_001.pt
 ```
 
 ### Resume from checkpoint

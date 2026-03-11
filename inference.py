@@ -358,6 +358,9 @@ def load_model(ckpt_path, device="cpu"):
         if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
             model.load_state_dict(ckpt["model_state_dict"])
             print(f"[load_model] Loaded checkpoint (epoch {ckpt.get('epoch', '?')})")
+        elif isinstance(ckpt, dict) and "model" in ckpt:
+            model.load_state_dict(ckpt["model"])
+            print(f"[load_model] Loaded checkpoint (epoch {ckpt.get('epoch', '?')})")
         else:
             model.load_state_dict(ckpt)
             print(f"[load_model] Loaded state_dict from {ckpt_path}")

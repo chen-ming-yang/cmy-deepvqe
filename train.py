@@ -17,6 +17,7 @@ import sys
 import time
 import random
 import argparse
+import logging
 
 import numpy as np
 import torch
@@ -27,6 +28,28 @@ from cmy_deepvqe import DeepVQE
 from dataset import make_aec_dataset, make_dns_dataset, CombinedDataset
 from loss import CombinedLoss
 from utils import si_snr, istft
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def setup_logging(save_dir):
+    log_path = os.path.join(save_dir, "train.log")
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+
+    file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers.clear()
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
+
+    return log_path
 
 
 # ─── Reproducibility ──────────────────────────────────────────────────────────
@@ -112,21 +135,25 @@ def build_datasets(cfg: Config):
             train_ds, [n_train, n_val],
             generator=torch.Generator().manual_seed(cfg.seed),
         )
-        print(f"[build_datasets] Auto val-split {cfg.val_split:.0%}: "
-              f"{n_train} train / {n_val} val")
+        LOGGER.info(
+            "[build_datasets] Auto val-split %s: %s train / %s val",
+            f"{cfg.val_split:.0%}",
+            n_train,
+            n_val,
+        )
     else:
         val_ds = None
 
     total_train = len(train_ds)
     total_hours = total_train * cfg.segment_len / 3600
-    print(f"\n{'='*60}")
-    print(f"[Dataset Summary]")
-    print(f"  Training samples : {total_train}")
-    print(f"  Segment length   : {cfg.segment_len:.1f} s")
-    print(f"  Total audio      : {total_hours:.2f} hours")
+    LOGGER.info("\n%s", "=" * 60)
+    LOGGER.info("[Dataset Summary]")
+    LOGGER.info("  Training samples : %s", total_train)
+    LOGGER.info("  Segment length   : %.1f s", cfg.segment_len)
+    LOGGER.info("  Total audio      : %.2f hours", total_hours)
     if val_ds is not None:
-        print(f"  Validation samples: {len(val_ds)}")
-    print(f"{'='*60}\n")
+        LOGGER.info("  Validation samples: %s", len(val_ds))
+    LOGGER.info("%s\n", "=" * 60)
 
     return train_ds, val_ds
 
@@ -151,7 +178,11 @@ def train_one_epoch(model, loader, criterion, optimizer, cfg, epoch):
         loss, l_spec, l_sisnr = criterion(est_spec, tgt_spec)
 
         if not torch.isfinite(loss):
-            print(f"  [WARNING] Non-finite loss ({loss.item():.4f}) at step {step+1}, skipping batch")
+            LOGGER.warning(
+                "Non-finite loss (%.4f) at step %s, skipping batch",
+                loss.item(),
+                step + 1,
+            )
             optimizer.zero_grad()
             continue
 
@@ -168,9 +199,15 @@ def train_one_epoch(model, loader, criterion, optimizer, cfg, epoch):
 
         if (step + 1) % cfg.log_interval == 0:
             avg = total_loss / n_steps
-            print(f"  Epoch {epoch} | Step {step+1}/{len(loader)} | "
-                  f"Loss {avg:.4f}  Spec {total_spec/n_steps:.4f}  "
-                  f"SI-SNR {total_sisnr/n_steps:.4f}")
+            LOGGER.info(
+                "Epoch %s | Step %s/%s | Loss %.4f  Spec %.4f  SI-SNR %.4f",
+                epoch,
+                step + 1,
+                len(loader),
+                avg,
+                total_spec / n_steps,
+                total_sisnr / n_steps,
+            )
 
     return total_loss / max(n_steps, 1)
 
@@ -210,10 +247,12 @@ def validate(model, loader, criterion, cfg):
 def main(cfg: Config):
     set_seed(cfg.seed)
     os.makedirs(cfg.save_dir, exist_ok=True)
+    log_path = setup_logging(cfg.save_dir)
 
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
     cfg.device = str(device)
-    print(f"Device: {device}")
+    LOGGER.info("Logging to %s", log_path)
+    LOGGER.info("Device: %s", device)
 
     # Model
     model = DeepVQE(
@@ -227,7 +266,7 @@ def main(cfg: Config):
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"Model parameters: {n_params:.2f} M")
+    LOGGER.info("Model parameters: %.2f M", n_params)
 
     # Loss
     criterion = CombinedLoss(
@@ -280,9 +319,9 @@ def main(cfg: Config):
         scheduler.load_state_dict(ckpt["scheduler"])
         start_epoch = ckpt["epoch"] + 1
         best_val_loss = ckpt.get("best_val_loss", float("inf"))
-        print(f"Resumed from {resume_path}, starting epoch {start_epoch}")
+        LOGGER.info("Resumed from %s, starting epoch %s", resume_path, start_epoch)
     else:
-        print("No checkpoint found, starting from scratch")
+        LOGGER.info("No checkpoint found, starting from scratch")
 
     # ── Training ──────────────────────────────────────────────────────────
     for epoch in range(start_epoch, cfg.epochs + 1):
@@ -304,7 +343,7 @@ def main(cfg: Config):
         else:
             is_best = False
 
-        print(msg)
+        LOGGER.info(msg)
 
         # Save checkpoint
         if epoch % cfg.save_interval == 0 or is_best:
@@ -317,7 +356,7 @@ def main(cfg: Config):
                 "train_loss": train_loss,
                 "best_val_loss": best_val_loss,
             }, ckpt_path)
-            print(f"  Saved {ckpt_path}")
+            LOGGER.info("Saved %s", ckpt_path)
 
             if is_best:
                 best_path = os.path.join(cfg.save_dir, "best.pt")
@@ -325,9 +364,9 @@ def main(cfg: Config):
                     "epoch": epoch,
                     "model": model.state_dict(),
                 }, best_path)
-                print(f"  Saved best model -> {best_path}")
+                LOGGER.info("Saved best model -> %s", best_path)
 
-    print("Training complete.")
+    LOGGER.info("Training complete.")
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────

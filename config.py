@@ -64,8 +64,8 @@ class Config:
     # ── training ──────────────────────────────────────────────────────────
     epochs: int = 100
     batch_size: int = 8
-    lr: float = 1e-3
-    weight_decay: float = 1e-5
+    lr: float = 1.2e-3
+    weight_decay: float = 5e-7
     lr_scheduler: str = "cosine"           # "cosine" | "step"
     lr_step_size: int = 30
     lr_gamma: float = 0.5
@@ -75,7 +75,7 @@ class Config:
     # ── checkpointing / logging ───────────────────────────────────────────
     save_dir: str = "checkpoints"
     log_interval: int = 50                  # print every N steps
-    save_interval: int = 3                  # save every N epochs
+    save_interval: int = 1                  # save every N epochs
     resume: Optional[str] = None            # path to checkpoint to resume
     seed: int = 42
 
