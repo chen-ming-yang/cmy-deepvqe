@@ -1,0 +1,5 @@
+python train.py     --aec_root /home/cmy/cmy/AEC-Challenge/datasets/synthetic     --dns_root /home/cmy/cmy/DNS-Challenge/datasets/dns     --noise_dir /home/cmy/cmy/3D-Speaker/egs/3dspeaker/sv-eres2netv2/data/raw_data/musan  /home/cmy/cmy/DNS-Challenge/datasets/dns/datasets.noise    --rir_dir /home/cmy/cmy/DNS-Challenge/datasets/dns_16k/datasets.impulse_responses     --epochs 100     --batch_size 8     --lr 1e-3     --save_dir checkpoints     --resume /home/cmy/cmy-deepvqe/checkpoints/epoch_038.pt
+
+python inference.py  --mic /home/cmy/cmy/DNS-Challenge/datasets/dns/datasets.dev_testset/datasets/dev_testset/ms_realrec_emotional_laptopmicrophone_A3U20M3KJ10B1A_Creakingchair_near_Surprised_fileid_5.wav  --out enhanced.wav --ckpt /home/cmy/cmy-deepvqe/checkpoints/epoch_044.pt
+
+python inference.py --live --ckpt /home/cmy/cmy-deepvqe/checkpoints/epoch_044.pt
