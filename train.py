@@ -164,7 +164,8 @@ def train_one_epoch(model, loader, criterion, optimizer, cfg, epoch):
     model.train()
     device = cfg.device
     total_loss = 0.0
-    total_spec = 0.0
+    total_mag = 0.0
+    total_mrsstft = 0.0
     total_sisnr = 0.0
     n_steps = 0
 
@@ -175,7 +176,7 @@ def train_one_epoch(model, loader, criterion, optimizer, cfg, epoch):
 
         est_spec = model(mic_spec, ref_spec)
 
-        loss, l_spec, l_sisnr = criterion(est_spec, tgt_spec)
+        loss, l_mag, l_mrsstft, l_sisnr = criterion(est_spec, tgt_spec)
 
         if not torch.isfinite(loss):
             LOGGER.warning(
@@ -193,20 +194,25 @@ def train_one_epoch(model, loader, criterion, optimizer, cfg, epoch):
         optimizer.step()
 
         total_loss += loss.item()
-        total_spec += l_spec.item()
+        total_mag += l_mag.item()
+        total_mrsstft += l_mrsstft.item()
         total_sisnr += l_sisnr.item()
         n_steps += 1
 
         if (step + 1) % cfg.log_interval == 0:
             avg = total_loss / n_steps
+            avg_mag = total_mag / n_steps
+            avg_mrsstft = total_mrsstft / n_steps
+            avg_sisnr_loss = total_sisnr / n_steps
             LOGGER.info(
-                "Epoch %s | Step %s/%s | Loss %.4f  Spec %.4f  SI-SNR %.4f",
+                "Epoch %s | Step %s/%s | Loss %.4f  Mag %.4f  MR-STFT %.4f  SI-SNR_loss %.4f",
                 epoch,
                 step + 1,
                 len(loader),
                 avg,
-                total_spec / n_steps,
-                total_sisnr / n_steps,
+                avg_mag,
+                avg_mrsstft,
+                avg_sisnr_loss,
             )
 
     return total_loss / max(n_steps, 1)
@@ -226,7 +232,7 @@ def validate(model, loader, criterion, cfg):
         tgt_spec = tgt_spec.to(device)
 
         est_spec = model(mic_spec, ref_spec)
-        loss, _, _ = criterion(est_spec, tgt_spec)
+        loss, _, _, _ = criterion(est_spec, tgt_spec)
         total_loss += loss.item()
 
         # Time-domain SI-SNR metric
@@ -271,8 +277,8 @@ def main(cfg: Config):
     # Loss
     criterion = CombinedLoss(
         compress=cfg.compress,
-        alpha=cfg.loss_alpha,
-        lambda_spec=cfg.lambda_spec,
+        lambda_mag=cfg.lambda_mag,
+        lambda_mrsstft=cfg.lambda_mrsstft,
         lambda_sisnr=cfg.lambda_sisnr,
         n_fft=cfg.n_fft,
         hop_length=cfg.hop_length,
@@ -404,15 +410,18 @@ def parse_args():
     # training
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--lr", type=float, default=1.2e-3)
+    parser.add_argument("--weight_decay", type=float, default=5e-7)
     parser.add_argument("--grad_clip", type=float, default=5.0)
     parser.add_argument("--lr_scheduler", type=str, default="cosine", choices=["cosine", "step"])
     parser.add_argument("--num_workers", type=int, default=4)
 
     # loss
-    parser.add_argument("--lambda_spec", type=float, default=1.0)
-    parser.add_argument("--lambda_sisnr", type=float, default=0.1)
+    parser.add_argument("--lambda_mag",     type=float, default=1.0,
+                        help="Compressed magnitude MSE loss weight (default: 1.0)")
+    parser.add_argument("--lambda_mrsstft", type=float, default=1.0,
+                        help="Multi-resolution STFT loss weight (default: 1.0)")
+    parser.add_argument("--lambda_sisnr",   type=float, default=0.1)
 
     # checkpoint
     parser.add_argument("--save_dir", type=str, default="checkpoints")
@@ -449,7 +458,8 @@ if __name__ == "__main__":
         grad_clip=args.grad_clip,
         lr_scheduler=args.lr_scheduler,
         num_workers=args.num_workers,
-        lambda_spec=args.lambda_spec,
+        lambda_mag=args.lambda_mag,
+        lambda_mrsstft=args.lambda_mrsstft,
         lambda_sisnr=args.lambda_sisnr,
         save_dir=args.save_dir,
         resume=args.resume,

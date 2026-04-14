@@ -48,6 +48,7 @@ import os
 import glob
 import random
 import csv
+import re
 
 import numpy as np
 import torch
@@ -81,10 +82,18 @@ def _scan_wavs(folder):
     return all_files
 
 
-def _rand_crop(audio, length):
-    """Random crop / zero-pad to exactly *length* samples."""
+def _rand_crop(audio, length, start=None):
+    """Random crop / zero-pad to exactly *length* samples.
+
+    If *start* is provided, use that offset instead of sampling a new one
+    (useful for keeping paired near-end / far-end signals temporally aligned).
+    The start is clamped to stay within valid range if audio lengths differ.
+    """
     if len(audio) >= length:
-        start = random.randint(0, len(audio) - length)
+        if start is None:
+            start = random.randint(0, len(audio) - length)
+        else:
+            start = min(start, len(audio) - length)  # clamp to valid range
         return audio[start: start + length]
     else:
         pad = np.zeros(length, dtype=np.float32)
@@ -174,6 +183,7 @@ class SpeechEnhancementDataset(Dataset):
     def __init__(
         self,
         nearend_files,                       # list of clean near-end .wav paths
+        noisy_files=None,                    # list of paired pre-generated noisy .wav paths
         farend_files=None,                   # list of far-end .wav paths (None → no echo)
         echo_files=None,                     # list of pre-generated echo .wav paths (optional)
         noise_files=None,                    # list of noise .wav paths
@@ -196,6 +206,7 @@ class SpeechEnhancementDataset(Dataset):
     ):
         super().__init__()
         self.nearend_files = nearend_files
+        self.noisy_files = noisy_files or []
         self.farend_files = farend_files or []
         self.echo_files = echo_files or []
         self.noise_files = noise_files or []
@@ -217,6 +228,7 @@ class SpeechEnhancementDataset(Dataset):
 
         print(f"[SpeechEnhancementDataset] "
               f"nearend={len(self.nearend_files)}, "
+              f"noisy={len(self.noisy_files)}, "
               f"farend={len(self.farend_files)}, "
               f"echo={len(self.echo_files)}, "
               f"noise={len(self.noise_files)}, "
@@ -227,15 +239,56 @@ class SpeechEnhancementDataset(Dataset):
         return len(self.nearend_files)
 
     def __getitem__(self, idx):
+        # ── Preprocessed DNS mode: use paired (clean, noisy) directly ───
+        if self.noisy_files:
+            clean_raw = load_wav(self.nearend_files[idx], self.sr)
+            noisy_raw = load_wav(self.noisy_files[idx], self.sr)
+
+            min_len = min(len(clean_raw), len(noisy_raw))
+            shared_start = (
+                random.randint(0, min_len - self.seg_samples)
+                if min_len >= self.seg_samples else 0
+            )
+
+            clean = _rand_crop(clean_raw, self.seg_samples, start=shared_start)
+            mic = _rand_crop(noisy_raw, self.seg_samples, start=shared_start)
+            farend = np.zeros(self.seg_samples, dtype=np.float32)
+
+            # Normalize mic and clean independently to -1 dBFS each.
+            # Using a shared mic-based gain shrinks clean when mic has high energy
+            # (noise/echo added), teaching the model to output near-silence.
+            target_peak_val = 10 ** (-1.0 / 20)   # -1 dBFS
+            mic_peak = np.max(np.abs(mic)) + 1e-8
+            mic = (mic * (target_peak_val / mic_peak)).astype(np.float32)
+            clean_peak = np.max(np.abs(clean)) + 1e-8
+            clean = (clean * (target_peak_val / clean_peak)).astype(np.float32)
+
+            mic_spec = stft(torch.from_numpy(mic).unsqueeze(0),
+                            self.n_fft, self.hop).squeeze(0)
+            ref_spec = stft(torch.from_numpy(farend).unsqueeze(0),
+                            self.n_fft, self.hop).squeeze(0)
+            clean_spec = stft(torch.from_numpy(clean).unsqueeze(0),
+                              self.n_fft, self.hop).squeeze(0)
+
+            return mic_spec, ref_spec, clean_spec
+
         # ── 1. Load random near-end and far-end signals ──────────────────
-        nearend = load_wav(self.nearend_files[idx], self.sr)
-        nearend = _rand_crop(nearend, self.seg_samples)
+        nearend_raw = load_wav(self.nearend_files[idx], self.sr)
 
         if self.farend_files:
-            farend = load_wav(self.farend_files[idx], self.sr)  # strictly paired with nearend
-            farend = _rand_crop(farend, self.seg_samples)
+            farend_raw = load_wav(self.farend_files[idx], self.sr)  # strictly paired
+            # Use a shared crop start so paired signals stay temporally aligned
+            min_len = min(len(nearend_raw), len(farend_raw))
+            shared_start = (
+                random.randint(0, min_len - self.seg_samples)
+                if min_len >= self.seg_samples else 0
+            )
+            nearend = _rand_crop(nearend_raw, self.seg_samples, start=shared_start)
+            farend  = _rand_crop(farend_raw,  self.seg_samples, start=shared_start)
         else:
-            farend = np.zeros(self.seg_samples, dtype=np.float32)
+            nearend = _rand_crop(nearend_raw, self.seg_samples)
+            farend  = np.zeros(self.seg_samples, dtype=np.float32)
+            shared_start = None
 
         # ── 2. Sample random parameters ──────────────────────────────────
         snr_db  = random.uniform(*self.snr_range)
@@ -262,7 +315,8 @@ class SpeechEnhancementDataset(Dataset):
             if self.use_pregenerated_echo:
                 # Use strictly paired pre-generated echo_signal file
                 echo = load_wav(self.echo_files[idx % len(self.echo_files)], self.sr)
-                echo = _rand_crop(echo, self.seg_samples)
+                # Reuse shared_start so echo stays aligned with nearend/farend
+                echo = _rand_crop(echo, self.seg_samples, start=shared_start)
                 # Scale echo to target SER relative to near-end
                 echo = _scale_to_snr(reverb_nearend, echo, ser_db)
             else:
@@ -296,11 +350,21 @@ class SpeechEnhancementDataset(Dataset):
         farend = farend * gain            # ref sees same gain in practice
 
         # ── 8. Normalize to prevent clipping ─────────────────────────────
-        mic    = _normalize(mic)
+        # Compute a shared gain from the mic signal and apply it to both mic
+        # and clean so the model learns a level-consistent input→target mapping.
+        mic_peak = np.max(np.abs(mic)) + 1e-8
+        target_peak = 10 ** (-1.0 / 20)   # -1 dBFS
+        shared_gain = target_peak / mic_peak
+        mic    = (mic    * shared_gain).astype(np.float32)
         farend = _normalize(farend)
 
-        # ── Target is the dry clean near-end ─────────────────────────────
-        clean = nearend
+        # ── Target is the dry clean near-end, normalized independently ──────
+        # Do NOT use mic's shared_gain: mic has extra energy from echo+noise,
+        # so shared_gain shrinks clean heavily → model learns to output near-silence.
+        # Instead, normalize clean to its own peak so it has a consistent level.
+        clean_peak = np.max(np.abs(nearend)) + 1e-8
+        clean_gain = target_peak / clean_peak
+        clean = (nearend * clean_gain).astype(np.float32)
 
         # ── STFT ─────────────────────────────────────────────────────────
         mic_spec   = stft(torch.from_numpy(mic).unsqueeze(0),
@@ -419,6 +483,7 @@ def make_aec_dataset(aec_root, noise_dir=None, rir_dir=None,
 
     return SpeechEnhancementDataset(
         nearend_files=nearend_files,
+        noisy_files=None,
         farend_files=farend_files,
         echo_files=echo_files,
         noise_files=noise_files,
@@ -426,6 +491,53 @@ def make_aec_dataset(aec_root, noise_dir=None, rir_dir=None,
         use_pregenerated_echo=use_pregenerated_echo,
         **kwargs,
     )
+
+
+def _extract_fileid(path):
+    """Extract trailing integer after 'fileid_' from filename, else None."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    match = re.search(r"fileid_(\d+)$", stem)
+    if match is not None:
+        return int(match.group(1))
+    match = re.search(r"fileid_(\d+)", stem)
+    if match is not None:
+        return int(match.group(1))
+    return None
+
+
+def _build_dns_preprocessed_pairs(dns_root):
+    """
+    Build paired clean/noisy lists from:
+      dns_root/
+        ├── clean/
+        └── noisy/
+
+    Pairing rule: same integer in filename token 'fileid_<N>'.
+    """
+    clean_dir = os.path.join(dns_root, "clean")
+    noisy_dir = os.path.join(dns_root, "noisy")
+    if not (os.path.isdir(clean_dir) and os.path.isdir(noisy_dir)):
+        return [], []
+
+    clean_all = _scan_wavs(clean_dir)
+    noisy_all = _scan_wavs(noisy_dir)
+
+    clean_map = {}
+    for path in clean_all:
+        fid = _extract_fileid(path)
+        if fid is not None:
+            clean_map[fid] = path
+
+    noisy_map = {}
+    for path in noisy_all:
+        fid = _extract_fileid(path)
+        if fid is not None:
+            noisy_map[fid] = path
+
+    common = sorted(set(clean_map) & set(noisy_map))
+    clean_files = [clean_map[fid] for fid in common]
+    noisy_files = [noisy_map[fid] for fid in common]
+    return clean_files, noisy_files
 
 
 def make_dns_dataset(dns_root, noise_dir=None, rir_dir=None, **kwargs):
@@ -449,7 +561,29 @@ def make_dns_dataset(dns_root, noise_dir=None, rir_dir=None, **kwargs):
       3. dns_root itself (fallback)
 
     No far-end → echo step is skipped.
+
+    Also supports preprocessed paired data:
+      dns_root/
+        ├── clean/   # clean_fileid_<N>.wav
+        └── noisy/   # *_fileid_<N>.wav
+    In this case, it uses paired (clean, noisy) directly instead of
+    generating noise/reverb on-the-fly.
     """
+    # ── Preprocessed paired clean/noisy mode ────────────────────────────
+    clean_files, noisy_files = _build_dns_preprocessed_pairs(dns_root)
+    if clean_files and noisy_files:
+        print(f"[make_dns_dataset] Using preprocessed DNS pairs: "
+              f"{len(clean_files)} matched by fileid")
+        return SpeechEnhancementDataset(
+            nearend_files=clean_files,
+            noisy_files=noisy_files,
+            farend_files=None,
+            noise_files=[],
+            rir_files=[],
+            **kwargs,
+        )
+
+    # ── On-the-fly DNS mode (clean only + sampled noise/reverb) ─────────
     clean_subdir = os.path.join(dns_root, "clean")
     if os.path.isdir(clean_subdir):
         nearend_files = _scan_wavs(clean_subdir)
@@ -471,6 +605,7 @@ def make_dns_dataset(dns_root, noise_dir=None, rir_dir=None, **kwargs):
 
     return SpeechEnhancementDataset(
         nearend_files=nearend_files,
+        noisy_files=None,
         farend_files=None,
         noise_files=noise_files,
         rir_files=rir_files,

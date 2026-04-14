@@ -236,6 +236,12 @@ class DeepVQE(nn.Module):
     def forward(self, mic_spec, ref_spec):
         """x: (B,F,T,2)"""
 
+        # Detect whether ref is active (non-zero).  When ref is all-zeros
+        # (denoising-only mode) the AlignBlock output is gated to zero so the
+        # encoder does not receive garbage features in the ref channels.
+        ref_active = (ref_spec.abs().sum(dim=(1, 2, 3), keepdim=False) > 1e-6)  # (B,)
+        ref_gate = ref_active.float().view(-1, 1, 1, 1)   # (B,1,1,1)
+
         mic_feat = self.fe(mic_spec)
         ref_feat = self.fe(ref_spec)
 
@@ -245,7 +251,7 @@ class DeepVQE(nn.Module):
         ref_e1 = self.ref_enc1(ref_feat)
         ref_e2 = self.ref_enc2(ref_e1)
 
-        ref_align = self.align_block(mic_e2, ref_e2)
+        ref_align = self.align_block(mic_e2, ref_e2) * ref_gate
 
         mic_cat = torch.cat([mic_e2, ref_align], dim=1)
 
@@ -286,8 +292,8 @@ if __name__ == "__main__":
     for name, module in model.named_children():
         hooks.append(module.register_forward_hook(make_hook(name)))
 
-    mic = torch.randn(1, 257, 63, 2)
-    ref = torch.randn(1, 257, 63, 2)
+    mic = torch.randn(1, 257, 251, 2)
+    ref = torch.randn(1, 257, 251, 2)
     print(f"mic input: {mic.shape}")
     print(f"ref input: {ref.shape}")
     y = model(mic, ref)

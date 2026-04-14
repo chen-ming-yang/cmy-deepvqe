@@ -57,9 +57,9 @@ class Config:
 
     # ── loss ──────────────────────────────────────────────────────────────
     compress: float = 0.3
-    loss_alpha: float = 0.7                 # complex vs magnitude balance
-    lambda_spec: float = 1.0
-    lambda_sisnr: float = 0.1
+    lambda_mag: float = 0.9                 # compressed magnitude MSE loss weight
+    lambda_mrsstft: float = 0.1             # multi-resolution STFT loss weight
+    lambda_sisnr: float = 0.02               # SI-SNR loss weight
 
     # ── training ──────────────────────────────────────────────────────────
     epochs: int = 100
